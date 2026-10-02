@@ -1,0 +1,23 @@
+{
+  "name": "web-dev-agents",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Human-controlled multi-agent CLI web development team template",
+  "type": "module",
+  "scripts": {
+    "team:init": "node scripts/team-init.mjs",
+    "team:status": "node scripts/team-status.mjs",
+    "team:board": "node scripts/team-board.mjs",
+    "team:new": "node scripts/team-task.mjs new",
+    "team:show": "node scripts/team-show.mjs",
+    "team:task": "node scripts/team-task.mjs task",
+    "team:assign": "node scripts/team-task.mjs assign",
+    "team:handoff": "node scripts/team-handoff.mjs",
+    "team:qa": "node scripts/team-qa.mjs",
+    "team:route": "node scripts/team-route.mjs",
+    "team:copy": "node scripts/team-copy.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
