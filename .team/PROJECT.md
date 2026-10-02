@@ -25,12 +25,19 @@
    - Controls for start, pause, resume, and reset.
    - Automatically logs completed focus sessions into the `focus_sessions` table with duration and timestamp.
 
-4. **Consumer-Grade UI & Brand System (Design Reference: MagicPath `keen-house-7963`):**
-   - Clean, airy palette: Pale blue page background, pure white cards, subtle blue-gray borders, vibrant blue primary buttons.
-   - Coordinated dark mode: Deep navy background with high-contrast, accessible surface accents and working toggle.
-   - Header with workspace selector dropdown, subtle pulsing status indicator ("Orbit Live"), theme mode toggle, and user profile avatar with tier badge.
-   - Montserrat font family used consistently throughout all typography.
-   - Strict consumer tone: **NO developer jargon**, **NO GitHub controls**, **NO client-visible API key inputs**.
+4. **Consumer-Grade UI & Brand System (Canonical Reference: `docs/reference/ZankaiOrbitDashboard.tsx`):**
+   - **Canonical Design Source of Truth:** `docs/reference/ZankaiOrbitDashboard.tsx` supplied by Team Lead. All layouts, component hierarchy, CSS tokens, and Lucide React icons MUST follow this code strictly.
+   - **Icon Library:** `lucide-react` (icons: `Bell`, `CalendarDays`, `Check`, `ChevronDown`, `Copy`, `Filter`, `LayoutGrid`, `List`, `MoreHorizontal`, `Moon`, `Plus`, `Search`, `Settings2`, `Sparkles`, `Sun`, `X`).
+   - **Column Symbols:** Ideas `✳`, Up Next `◯`, In Motion `◐`, Waiting `◈`, Complete `✓`.
+   - **Color Palette (CSS Variables):**
+     - Light mode: `--bg: #f7faff`, `--top: #fff`, `--panel: #f0f5fc`, `--card: #fff`, `--line: #dce7f5`, `--text: #12203a`, `--muted: #7689a7`, `--soft: #eaf2fd`, `--blue: #2867e8`, `--blue2: #438ff4`, `--shadow: #1a4c9512`.
+     - Dark mode: `--bg: #07111f`, `--top: #0b1729`, `--panel: #0d1b30`, `--card: #14233a`, `--line: #253d5b`, `--text: #edf4ff`, `--muted: #8ea4c2`, `--soft: #1b3150`, `--blue: #65a1ff`, `--blue2: #83baff`, `--shadow: #0007`.
+   - **Brand Mark:** Circular gradient `linear-gradient(145deg, #7ec5ff, #2f68e9)` with planetary ring (`rotate(-34deg)`), `✦`, and italic text `ZANKAI ORBIT`.
+   - **Top Navigation Bar:** Height 68px, workspace selector dropdown ("Northstar Team" with "N" badge), live status pill with pulsing blue glow ("Everything in motion"), dark/light theme toggle, notifications (`Bell`), settings (`Settings2`), and profile avatar with owner details.
+   - **Board Heading & Filter Strip:** Search bar (`Search`), category filter dropdown (`Filter`), "+ New task" button, board task counter with team avatar stack, and Board / List view switcher (`LayoutGrid` / `List`).
+   - **Floating Focus Timer:** Fixed bottom-center glassmorphism pill (`backdrop-filter: blur(15px)`), live status glow dot, active task title label, tabular-nums clock (`HH:MM:SS`), and pause/resume button.
+   - **Task Detail Drawer:** Right-side slide-in modal (`min(480px, 100vw)`), title input, status and priority select boxes, overview textarea, interactive to-dos checklist with custom checkboxes, add-step input, due date picker, assignee selector, and bottom actions ("Ask Orbit" AI button, "Copy summary" button).
+   - **Strict Voice:** No developer jargon, no git terms, no API inputs.
 
 ## Standard Stack & Deviations
 
