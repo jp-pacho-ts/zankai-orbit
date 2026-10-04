@@ -96,7 +96,12 @@ CREATE POLICY "profiles_select_own"
 CREATE POLICY "profiles_insert_own"
   ON public.profiles FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = id);
+  WITH CHECK (
+    auth.uid() = id
+    AND (tier IS NULL OR tier = 'free')
+    AND (ai_monthly_generations IS NULL OR ai_monthly_generations = 0)
+    AND (max_ai_generations IS NULL OR max_ai_generations = 15)
+  );
 
 CREATE POLICY "profiles_update_own"
   ON public.profiles FOR UPDATE
@@ -104,10 +109,7 @@ CREATE POLICY "profiles_update_own"
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
-CREATE POLICY "profiles_delete_own"
-  ON public.profiles FOR DELETE
-  TO authenticated
-  USING (auth.uid() = id);
+-- Note: No DELETE policy on profiles; prevents deletion/re-insertion privilege escalation
 
 -- 4.2. Boards Policies
 CREATE POLICY "boards_select_own"
@@ -290,22 +292,50 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_role TEXT;
 BEGIN
-  IF (current_user NOT IN ('postgres', 'service_role')) AND
-     (COALESCE(current_setting('request.jwt.claim.role', true), '') = 'authenticated') THEN
-    IF (OLD.tier IS DISTINCT FROM NEW.tier) OR
-       (OLD.ai_monthly_generations IS DISTINCT FROM NEW.ai_monthly_generations) OR
-       (OLD.max_ai_generations IS DISTINCT FROM NEW.max_ai_generations) THEN
-      RAISE EXCEPTION 'Modifying tier or quota fields directly is forbidden';
+  -- If authorized by internal quota function, allow update
+  IF current_setting('orbit.allow_quota_update', true) = 'true' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Determine caller role from auth.role() or JWT claims safely
+  BEGIN
+    v_role := auth.role();
+  EXCEPTION WHEN OTHERS THEN
+    v_role := COALESCE(current_setting('request.jwt.claim.role', true), '');
+  END;
+
+  -- Apply restrictions to authenticated or anon clients
+  IF v_role IN ('authenticated', 'anon') THEN
+    IF TG_OP = 'INSERT' THEN
+      -- Guarantee safe default values on client insertion
+      NEW.tier := 'free';
+      NEW.ai_monthly_generations := 0;
+      NEW.max_ai_generations := 15;
+    ELSIF TG_OP = 'UPDATE' THEN
+      -- Forbid modifying tier or quota counters directly
+      IF (OLD.tier IS DISTINCT FROM NEW.tier) OR
+         (OLD.ai_monthly_generations IS DISTINCT FROM NEW.ai_monthly_generations) OR
+         (OLD.max_ai_generations IS DISTINCT FROM NEW.max_ai_generations) THEN
+        RAISE EXCEPTION 'Modifying tier or quota fields directly is forbidden';
+      END IF;
+
+      -- Forbid modifying profile id
+      IF OLD.id IS DISTINCT FROM NEW.id THEN
+        RAISE EXCEPTION 'Modifying profile id is forbidden';
+      END IF;
     END IF;
   END IF;
+
   RETURN NEW;
 END;
 $$;
 
 DROP TRIGGER IF EXISTS on_profile_protect_fields ON public.profiles;
 CREATE TRIGGER on_profile_protect_fields
-  BEFORE UPDATE ON public.profiles
+  BEFORE INSERT OR UPDATE ON public.profiles
   FOR EACH ROW EXECUTE FUNCTION public.protect_profile_privileged_fields();
 
 -- Enforce task relational integrity at trigger level
@@ -435,6 +465,9 @@ BEGIN
     RETURN FALSE;
   END IF;
 
+  -- Mark transaction as authorized to increment quota counter
+  PERFORM set_config('orbit.allow_quota_update', 'true', true);
+
   UPDATE public.profiles
   SET ai_monthly_generations = ai_monthly_generations + 1
   WHERE id = v_user_id
@@ -448,6 +481,14 @@ $$;
 
 REVOKE ALL ON FUNCTION public.consume_board_generation_quota() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.consume_board_generation_quota() TO authenticated;
+
+-- Explicit table and column privileges for profiles
+REVOKE ALL ON public.profiles FROM anon, authenticated;
+GRANT SELECT ON public.profiles TO authenticated;
+GRANT INSERT (id, email, display_name, avatar_url) ON public.profiles TO authenticated;
+GRANT UPDATE (display_name, avatar_url, email) ON public.profiles TO authenticated;
+REVOKE UPDATE (tier, ai_monthly_generations, max_ai_generations, id, created_at) ON public.profiles FROM authenticated;
+REVOKE DELETE ON public.profiles FROM authenticated, anon;
 
 -- 8. REALTIME REPLICATION (SAFE CONDITIONAL REGISTRATION)
 DO $$

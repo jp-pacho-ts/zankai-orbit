@@ -488,14 +488,20 @@ export async function moveTask(
     throw new Error(moveError.message);
   }
 
-  // Update positions of any affected sibling tasks
+  // Update positions of any affected sibling tasks and propagate any errors
   if (payload.affectedTasks && payload.affectedTasks.length > 0) {
     for (const item of payload.affectedTasks) {
       if (item.id === payload.taskId) continue;
-      await supabase
+      const { error: siblingError } = await supabase
         .from('tasks')
         .update({ sort_order: item.sortOrder })
         .eq('id', item.id);
+
+      if (siblingError) {
+        throw new Error(
+          `Failed to update sibling task sort order (${item.id}): ${siblingError.message}`
+        );
+      }
     }
   }
 }
@@ -511,12 +517,32 @@ export async function addChecklistItem(
     sortOrder?: number;
   }
 ): Promise<ChecklistItem> {
+  let sortOrder = payload.sortOrder;
+
+  if (sortOrder === undefined) {
+    const { data: existingItems, error: fetchError } = await supabase
+      .from('checklist_items')
+      .select('sort_order')
+      .eq('task_id', payload.taskId)
+      .order('sort_order', { ascending: false })
+      .limit(1);
+
+    if (fetchError) {
+      throw new Error(`Failed to fetch checklist items: ${fetchError.message}`);
+    }
+
+    sortOrder =
+      existingItems && existingItems.length > 0
+        ? existingItems[0].sort_order + 1
+        : 0;
+  }
+
   const { data, error } = await supabase
     .from('checklist_items')
     .insert({
       task_id: payload.taskId,
       title: payload.title.trim(),
-      sort_order: payload.sortOrder ?? 0,
+      sort_order: sortOrder,
       is_completed: false,
     })
     .select('*')
@@ -531,6 +557,8 @@ export async function addChecklistItem(
 
 /**
  * Adds multiple checklist items in batch (e.g. from AI breakdown).
+ * Calculates current maximum sort_order so appended items continue
+ * from the correct index rather than restarting at zero.
  */
 export async function addChecklistItemsBatch(
   supabase: TypedSupabaseClient,
@@ -539,17 +567,35 @@ export async function addChecklistItemsBatch(
 ): Promise<ChecklistItem[]> {
   if (titles.length === 0) return [];
 
+  // Query existing items to determine the next sort_order
+  const { data: existingItems, error: fetchError } = await supabase
+    .from('checklist_items')
+    .select('sort_order')
+    .eq('task_id', taskId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch checklist items: ${fetchError.message}`);
+  }
+
+  const startingSortOrder =
+    existingItems && existingItems.length > 0
+      ? existingItems[0].sort_order + 1
+      : 0;
+
   const inserts = titles.map((title, index) => ({
     task_id: taskId,
     title: title.trim(),
-    sort_order: index,
+    sort_order: startingSortOrder + index,
     is_completed: false,
   }));
 
   const { data, error } = await supabase
     .from('checklist_items')
     .insert(inserts)
-    .select('*');
+    .select('*')
+    .order('sort_order', { ascending: true });
 
   if (error || !data) {
     throw new Error(error?.message ?? 'Failed to insert checklist items batch');
