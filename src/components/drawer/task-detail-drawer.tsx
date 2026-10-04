@@ -14,12 +14,19 @@ import {
 import { useDrawerStore } from "@/stores/drawer-store";
 import { useBoardStore } from "@/stores/board-store";
 import { useTimerStore } from "@/stores/timer-store";
-import type { Priority, BreakdownTaskResponse } from "@/types/orbit";
+import type { Priority, BreakdownTaskResponse, OrbitApiError } from "@/types/orbit";
 
 const OWNERS: Record<string, string> = {
   MC: "Maya Chen",
   AL: "Avery Lee",
   SK: "Sam Kim",
+};
+
+const UI_TO_DB_PRIORITY: Record<string, Priority> = {
+  Urgent: "high",
+  High: "high",
+  Normal: "medium",
+  Low: "low",
 };
 
 export function TaskDetailDrawer() {
@@ -56,8 +63,9 @@ export function TaskDetailDrawer() {
   };
 
   const handlePriorityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value.toLowerCase() as Priority;
-    updateTask(task.id, { priority: val });
+    const selected = e.target.value;
+    const mapped = UI_TO_DB_PRIORITY[selected] || "medium";
+    updateTask(task.id, { priority: mapped });
   };
 
   const handleStageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -114,7 +122,7 @@ export function TaskDetailDrawer() {
       if (response.ok) {
         const data: BreakdownTaskResponse = await response.json();
         const existingTitles = new Set(checklist.map((item) => item.title.toLowerCase()));
-        const newTitles = data.subtasks
+        const newTitles = (data.subtasks || [])
           .map((st) => st.title.trim())
           .filter((t) => t && !existingTitles.has(t.toLowerCase()));
 
@@ -125,33 +133,13 @@ export function TaskDetailDrawer() {
           setToast("Suggested steps are already in your checklist.");
         }
       } else {
-        // Fallback: If task is a client mock ID or unauthenticated, generate intelligent action steps
-        const fallbackSuggestions = [
-          `Review requirements for ${task.title}`,
-          "Coordinate initial draft with team",
-          "Conduct final quality review",
-        ].filter(
-          (text) =>
-            !checklist.some(
-              (step) => step.title.toLowerCase() === text.toLowerCase()
-            )
-        );
-
-        if (fallbackSuggestions.length > 0) {
-          await addChecklistItemsBatch(task.id, fallbackSuggestions);
-          setToast("Smart steps added to checklist!");
-        } else {
-          setToast("All standard steps are already in this checklist.");
-        }
+        const errorData: OrbitApiError = await response.json().catch(() => ({
+          message: "Unable to break down task right now. Please try again.",
+        }));
+        setToast(errorData.message || "Failed to break down task");
       }
     } catch {
-      // Local fallback steps
-      const fallbackSuggestions = [
-        `Prepare materials for ${task.title}`,
-        "Complete action items and verify outcome",
-      ];
-      await addChecklistItemsBatch(task.id, fallbackSuggestions);
-      setToast("Added smart steps to checklist.");
+      setToast("Network error while connecting to Orbit AI. Please try again.");
     } finally {
       setIsAskingAi(false);
     }

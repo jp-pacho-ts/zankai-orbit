@@ -118,7 +118,8 @@ export const useTimerStore = create<FocusTimerStore>((set, get) => ({
         });
       }
     } catch {
-      // In unauthenticated or preview environments, session completes locally
+      // If logging fails or throws, revert sessionLogged to false so future retries are possible
+      set({ sessionLogged: false });
     }
   },
 }));

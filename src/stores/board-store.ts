@@ -340,6 +340,42 @@ export const INITIAL_CHECKLISTS: Record<UUID, ChecklistItem[]> = {
   ],
 };
 
+function getVisibleColumnTasks(
+  allColTasks: BoardTask[],
+  draggableId: string | null,
+  sourceIndex: number | null,
+  searchQuery: string,
+  selectedCategory: string
+): BoardTask[] {
+  const isFilterActive =
+    (searchQuery && searchQuery.trim() !== "") ||
+    (selectedCategory && selectedCategory !== "All");
+
+  if (isFilterActive) {
+    return allColTasks.filter((t) => {
+      const matchesCategory =
+        !selectedCategory || selectedCategory === "All" || (t.category || "General") === selectedCategory;
+      const matchesQuery =
+        !searchQuery ||
+        searchQuery.trim() === "" ||
+        `${t.title} ${t.category || ""}`.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesCategory && matchesQuery;
+    });
+  }
+
+  // If store filters are not explicitly active, but sourceIndex doesn't match the dragged card's
+  // index in allColTasks, the drag originated from a filtered caller/view.
+  if (draggableId && sourceIndex !== null) {
+    const movedIdxInAll = allColTasks.findIndex((t) => t.id === draggableId);
+    if (movedIdxInAll >= 0 && sourceIndex !== movedIdxInAll) {
+      // Cards before draggableId with lower sortOrders were hidden
+      return allColTasks.filter((t) => t.sortOrder >= allColTasks[movedIdxInAll].sortOrder);
+    }
+  }
+
+  return allColTasks;
+}
+
 export const useBoardStore = create<BoardStore>((set, get) => ({
   board: {
     id: "board-default",
@@ -376,10 +412,9 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
       return;
     }
 
-    const { tasks } = get();
+    const { tasks, searchQuery, selectedCategory } = get();
     const oldTasks = [...tasks];
 
-    // Separate tasks in source and target columns
     const sourceColId = source.droppableId;
     const destColId = destination.droppableId;
 
@@ -387,37 +422,84 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
       .filter((t) => t.columnId === sourceColId)
       .sort((a, b) => a.sortOrder - b.sortOrder);
 
-    const movedTask = sourceTasks.find((t) => t.id === draggableId);
+    const movedTask = tasks.find((t) => t.id === draggableId);
     if (!movedTask) return;
 
     let updatedTasks: BoardTask[] = [];
 
     if (sourceColId === destColId) {
       // Reordering within the same column
-      const reordered = [...sourceTasks];
-      const [removed] = reordered.splice(source.index, 1);
-      reordered.splice(destination.index, 0, removed);
+      const visibleTasks = getVisibleColumnTasks(
+        sourceTasks,
+        draggableId,
+        source.index,
+        searchQuery,
+        selectedCategory
+      );
 
-      const reorderedWithOrder = reordered.map((t, idx) => ({ ...t, sortOrder: idx }));
+      const visibleIds = new Set(visibleTasks.map((t) => t.id));
+      const visibleWithoutMoved = visibleTasks.filter((t) => t.id !== draggableId);
+      const targetIndex = Math.max(0, Math.min(destination.index, visibleWithoutMoved.length));
+      const reorderedVisible = [...visibleWithoutMoved];
+      reorderedVisible.splice(targetIndex, 0, movedTask);
+
+      // Merge reordered visible tasks back into full column preserving hidden tasks' positions
+      let visibleIdx = 0;
+      const mergedColumnTasks = sourceTasks.map((t) => {
+        if (visibleIds.has(t.id)) {
+          return reorderedVisible[visibleIdx++];
+        }
+        return t;
+      });
+
+      const columnWithOrder = mergedColumnTasks.map((t, idx) => ({ ...t, sortOrder: idx }));
 
       updatedTasks = tasks.map((t) => {
-        const found = reorderedWithOrder.find((item) => item.id === t.id);
+        const found = columnWithOrder.find((item) => item.id === t.id);
         return found ?? t;
       });
     } else {
       // Moving across columns
+      const newSource = sourceTasks
+        .filter((t) => t.id !== draggableId)
+        .map((t, idx) => ({ ...t, sortOrder: idx }));
+
       const destTasks = tasks
         .filter((t) => t.columnId === destColId)
         .sort((a, b) => a.sortOrder - b.sortOrder);
 
-      const newSource = sourceTasks.filter((t) => t.id !== draggableId).map((t, idx) => ({ ...t, sortOrder: idx }));
+      const destVisibleTasks = getVisibleColumnTasks(
+        destTasks,
+        null,
+        null,
+        searchQuery,
+        selectedCategory
+      );
+
+      let insertAt = destTasks.length;
+      if (destVisibleTasks.length === 0) {
+        insertAt = Math.min(destination.index, destTasks.length);
+      } else {
+        const targetIdx = Math.max(0, Math.min(destination.index, destVisibleTasks.length));
+        if (targetIdx < destVisibleTasks.length) {
+          const targetSibling = destVisibleTasks[targetIdx];
+          const siblingIdx = destTasks.findIndex((t) => t.id === targetSibling.id);
+          insertAt = siblingIdx >= 0 ? siblingIdx : destTasks.length;
+        } else {
+          const lastVisible = destVisibleTasks[destVisibleTasks.length - 1];
+          const lastIdx = destTasks.findIndex((t) => t.id === lastVisible.id);
+          insertAt = lastIdx >= 0 ? lastIdx + 1 : destTasks.length;
+        }
+      }
+
       const newDest = [...destTasks];
-      newDest.splice(destination.index, 0, { ...movedTask, columnId: destColId });
+      newDest.splice(insertAt, 0, { ...movedTask, columnId: destColId });
       const newDestWithOrder = newDest.map((t, idx) => ({ ...t, sortOrder: idx }));
 
       updatedTasks = tasks.map((t) => {
         if (t.id === draggableId) {
-          return { ...movedTask, columnId: destColId, sortOrder: destination.index };
+          const fromDest = newDestWithOrder.find((item) => item.id === draggableId);
+          return fromDest ?? { ...movedTask, columnId: destColId, sortOrder: insertAt };
         }
         const fromSource = newSource.find((item) => item.id === t.id);
         if (fromSource) return fromSource;
@@ -443,7 +525,11 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
         });
       }
     } catch {
-      // Keep optimistic client state intact if offline/preview
+      // Roll back optimistic state on failed persistence
+      set({
+        tasks: oldTasks,
+        toast: "Unable to update task position. Reverted to previous layout.",
+      });
     }
   },
 
@@ -506,7 +592,7 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
     try {
       const supabase = getBrowserSupabase();
       if (supabase) {
-        await apiCreateTask(supabase, {
+        const created = await apiCreateTask(supabase, {
           boardId: newTask.boardId,
           columnId: newTask.columnId,
           title: newTask.title,
@@ -514,9 +600,29 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
           priority: newTask.priority,
           sortOrder: newTask.sortOrder,
         });
+
+        if (created?.id) {
+          const finalId = created.id;
+          set((state) => {
+            const nextTasks = state.tasks.map((t) => (t.id === newId ? { ...t, id: finalId } : t));
+            const nextChecklist = { ...state.checklistMap };
+            if (nextChecklist[newId]) {
+              nextChecklist[finalId] = nextChecklist[newId].map((step) => ({
+                ...step,
+                taskId: finalId,
+              }));
+              delete nextChecklist[newId];
+            }
+            return {
+              tasks: nextTasks,
+              checklistMap: nextChecklist,
+            };
+          });
+          return finalId;
+        }
       }
     } catch {
-      // Client optimistic preview succeeds
+      // In offline/preview mode, keep client-generated newId
     }
 
     return newId;
@@ -587,8 +693,9 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
     if (!title.trim()) return;
     const { checklistMap } = get();
     const items = checklistMap[taskId] ?? [];
+    const tempId = `step-${Date.now()}`;
     const newItem: ChecklistItem = {
-      id: `step-${Date.now()}`,
+      id: tempId,
       taskId,
       title: title.trim(),
       isCompleted: false,
@@ -602,14 +709,26 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
     try {
       const supabase = getBrowserSupabase();
       if (supabase) {
-        await apiAddChecklistItem(supabase, {
+        const created = await apiAddChecklistItem(supabase, {
           taskId,
           title: newItem.title,
           sortOrder: newItem.sortOrder,
         });
+
+        if (created?.id) {
+          const finalId = created.id;
+          set((state) => ({
+            checklistMap: {
+              ...state.checklistMap,
+              [taskId]: (state.checklistMap[taskId] ?? []).map((step) =>
+                step.id === tempId ? { ...step, id: finalId } : step
+              ),
+            },
+          }));
+        }
       }
     } catch {
-      // Optimistic update retained
+      // In offline/preview mode, retain optimistic client step
     }
   },
 
@@ -678,7 +797,7 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
         title: genTask.title,
         description: genTask.description,
         priority: genTask.priority,
-        dueDate: genTask.dueDate ?? "Tomorrow",
+        dueDate: genTask.dueDate !== undefined ? genTask.dueDate : null,
         sortOrder: idx,
         createdAt: new Date().toISOString(),
         category: "Goals",
