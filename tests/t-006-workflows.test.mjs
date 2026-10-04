@@ -85,3 +85,23 @@ test('failed focus logging is not marked successfully logged', async () => {
   await timer.getState().completeSession();
   assert.equal(timer.getState().sessionLogged, false);
 });
+
+test('cancelled drag never mutates tasks or calls persistence', async () => {
+  reset();
+  const before = structuredClone(board.getState().tasks);
+  await move('task-1', { droppableId: 'col-ideas', index: 0 }, { droppableId: 'col-waiting', index: 0 }, 'CANCEL');
+  assert.deepEqual(board.getState().tasks, before);
+  assert.equal(boundary.calls.length, 0);
+});
+
+test('failed drawer task edit restores the last persisted value', async () => {
+  reset(); boundary.fail = true;
+  const before = board.getState().tasks.find(t => t.id === 'task-1').title;
+  await board.getState().updateTask('task-1', { title: 'Unsaved edit' });
+  assert.equal(board.getState().tasks.find(t => t.id === 'task-1').title, before);
+});
+
+test('failed AI checklist persistence rejects so the drawer cannot report success', async () => {
+  reset(); boundary.fail = true;
+  await assert.rejects(board.getState().addChecklistItemsBatch('task-1', ['Unsaved AI step']));
+});
