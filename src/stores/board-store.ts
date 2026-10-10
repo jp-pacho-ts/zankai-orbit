@@ -757,7 +757,30 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
     try {
       const supabase = getBrowserSupabase();
       if (supabase) {
-        await apiAddChecklistItemsBatch(supabase, taskId, titles);
+        const savedItems = await apiAddChecklistItemsBatch(supabase, taskId, titles);
+        if (Array.isArray(savedItems) && savedItems.length > 0) {
+          set((state) => {
+            const currentList = state.checklistMap[taskId] ?? [];
+            const tempIdMap = new Map<string, ChecklistItem>();
+            newItems.forEach((tempItem, idx) => {
+              if (savedItems[idx]) {
+                tempIdMap.set(tempItem.id, savedItems[idx]);
+              }
+            });
+
+            const reconciledList = currentList.map((item) => {
+              const saved = tempIdMap.get(item.id);
+              return saved ? { ...item, ...saved } : item;
+            });
+
+            return {
+              checklistMap: {
+                ...state.checklistMap,
+                [taskId]: reconciledList,
+              },
+            };
+          });
+        }
       }
     } catch (error) {
       set({
