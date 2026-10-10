@@ -3,7 +3,7 @@
 > **Single-Writer Rule:** Only `TEAM-COORD` (Coordinator) or the human Team Lead (via `npm run team:board` / `npm run team:init`) may update `.team/BOARD.md`. Specialist workers (`TEAM-ARCH`, `TEAM-FE`, `TEAM-BE`, `TEAM-DATA`, `TEAM-QA`) must **never** directly modify `.team/BOARD.md`; they report completion and status through `.team/handoffs/`.
 
 <!-- AI_TEAM_BOARD_START -->
-BACKLOG: 0 · READY: 0 · IN_PROGRESS: 0 · BLOCKED: 0 · READY_FOR_QA: 0 · QA_FAILED: 0 · DONE: 10
+BACKLOG: 0 · READY: 1 · IN_PROGRESS: 0 · BLOCKED: 4 · READY_FOR_QA: 0 · QA_FAILED: 0 · DONE: 10
 
 | ID | Title | Status | Role | Terminal | Provider | Profile | Parallelism | Dependencies |
 |---|---|---|---|---|---|---|---|---|
@@ -17,4 +17,9 @@ BACKLOG: 0 · READY: 0 · IN_PROGRESS: 0 · BLOCKED: 0 · READY_FOR_QA: 0 · QA_
 | [T-008](tasks/T-008.md) | Frontend Workflow Store Fixes & Error Handling | DONE | Frontend | TEAM-FE | Antigravity | STANDARD | SAFE PARALLEL | None |
 | [T-009](tasks/T-009.md) | Frontend Drag Cancellation, Edit Rollback & Batch Error Handling | DONE | Frontend | TEAM-FE | Antigravity | STANDARD | SAFE PARALLEL | None |
 | [T-010](tasks/T-010.md) | Frontend AI Checklist ID Reconciliation & Lint Config | DONE | Frontend | TEAM-FE | Antigravity | STANDARD | PARALLEL WITH ISOLATION | None |
+| [T-011](tasks/T-011.md) | Auth Flow System Design, Session Lifecycle Contract & ADR-002 | READY | Architect | TEAM-ARCH | Codex | DEEP | SAFE PARALLEL | None |
+| [T-012](tasks/T-012.md) | Supabase Auth Triggers, Profile Auto-Creation & Email Sync | BLOCKED | Data | TEAM-DATA | Antigravity | STANDARD | SEQUENTIAL / BLOCKED | T-011 |
+| [T-013](tasks/T-013.md) | Server Session Middleware, Auth Callback Routes & Server Protection | BLOCKED | Backend | TEAM-BE | Codex | STANDARD | SEQUENTIAL / BLOCKED | T-011 |
+| [T-014](tasks/T-014.md) | Consumer Auth Dialog, User Menu, Profile Settings & Auth State Sync | BLOCKED | Frontend | TEAM-FE | Antigravity | STANDARD | SEQUENTIAL / BLOCKED | T-011, T-012, T-013 |
+| [T-015](tasks/T-015.md) | End-to-End Integrated Auth, Cookie Lifecycle & RLS Verification | BLOCKED | QA | TEAM-QA | Codex | STANDARD | SEQUENTIAL / BLOCKED | T-011, T-012, T-013, T-014 |
 <!-- AI_TEAM_BOARD_END -->
