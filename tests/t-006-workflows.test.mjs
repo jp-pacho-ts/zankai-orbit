@@ -12,6 +12,12 @@ const boundary = globalThis.__t006Boundary;
 const invoke = async (name, args) => {
   boundary.calls.push({ name, args });
   if (boundary.fail) throw new Error('Simulated persistence failure');
+  if (name === 'addChecklistItemsBatch') {
+    return args[2].map((title, index) => ({
+      id: index === 0 ? '${uuid}' : '00000000-0000-4000-8000-000000000002',
+      taskId: args[1], title, isCompleted: false, sortOrder: index + 3,
+    }));
+  }
   return { id: '${uuid}', taskId: '${uuid}' };
 };
 ${['moveTask', 'updateTask', 'createTask', 'deleteTask', 'addChecklistItem', 'addChecklistItemsBatch', 'toggleChecklistItem', 'deleteChecklistItem', 'logFocusSession'].map(name => `export const ${name} = (...args) => invoke('${name}', args);`).join('\n')}`;
@@ -104,4 +110,15 @@ test('failed drawer task edit restores the last persisted value', async () => {
 test('failed AI checklist persistence rejects so the drawer cannot report success', async () => {
   reset(); boundary.fail = true;
   await assert.rejects(board.getState().addChecklistItemsBatch('task-1', ['Unsaved AI step']));
+});
+
+test('saved AI checklist steps use database IDs for subsequent completion', async () => {
+  reset();
+  await board.getState().addChecklistItemsBatch('task-1', ['Saved AI step']);
+  const added = board.getState().checklistMap['task-1'].at(-1);
+  assert.equal(added.id, uuid);
+  await board.getState().toggleChecklistItem('task-1', added.id);
+  const savedToggle = boundary.calls.find(call => call.name === 'toggleChecklistItem');
+  assert.equal(savedToggle.args[1], uuid);
+  assert.equal(savedToggle.args[2], true);
 });
