@@ -139,7 +139,7 @@ export function TaskDetailDrawer() {
         setToast(errorData.message || "Failed to break down task");
       }
     } catch {
-      setToast("Network error while connecting to Orbit AI. Please try again.");
+      setToast("Unable to save suggested steps. Please try again.");
     } finally {
       setIsAskingAi(false);
     }

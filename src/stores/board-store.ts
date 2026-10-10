@@ -406,7 +406,8 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   setToast: (toast) => set({ toast }),
 
   moveTaskOptimistic: async (payload) => {
-    const { source, destination, draggableId } = payload;
+    const { source, destination, draggableId, reason } = payload;
+    if (reason === "CANCEL") return;
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) {
       return;
@@ -629,6 +630,7 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   },
 
   updateTask: async (taskId, patch) => {
+    const previousTasks = get().tasks;
     set((state) => ({
       tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t)),
     }));
@@ -646,7 +648,10 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
         });
       }
     } catch {
-      // Local optimistic state preserved
+      set({
+        tasks: previousTasks,
+        toast: "Unable to save task changes. Reverted to previous state.",
+      });
     }
   },
 
@@ -754,8 +759,12 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
       if (supabase) {
         await apiAddChecklistItemsBatch(supabase, taskId, titles);
       }
-    } catch {
-      // Optimistic update retained
+    } catch (error) {
+      set({
+        checklistMap: { ...get().checklistMap, [taskId]: existing },
+        toast: "Unable to save suggested steps.",
+      });
+      throw error;
     }
   },
 
