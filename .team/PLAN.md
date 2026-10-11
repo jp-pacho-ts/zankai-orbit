@@ -35,11 +35,11 @@ This living checklist tracks the transition of **Zankai Orbit** from an initial 
 ### Milestone 1: Production Authentication & User Lifecycle (`ACTIVE`)
 > **Goal:** Transition from offline mock mode (`Maya Chen`) to real user authentication (Email/Password, Magic Link, Google/GitHub OAuth), secure cookie sessions, profile onboarding, and strict account isolation.
 
-- [ ] `T-011` [ARCH] **Auth Flow System Design, Session Lifecycle Contract & ADR-002**
-  - [ ] Define user session states (`unauthenticated`, `authenticating`, `authenticated`, `offline_preview`).
-  - [ ] Define cookie refresh strategy using `@supabase/ssr` middleware.
-  - [ ] Specify store hydration and sign-out cleanup lifecycle.
-  - [ ] Document architecture in `.team/decisions/ADR-002-auth-session-lifecycle.md`.
+- [x] `T-011` [ARCH] **Auth Flow System Design, Session Lifecycle Contract & ADR-002**
+  - [x] Define user session states (`unauthenticated`, `authenticating`, `authenticated`, `offline_preview`).
+  - [x] Define cookie refresh strategy using `@supabase/ssr` middleware.
+  - [x] Specify store hydration and sign-out cleanup lifecycle.
+  - [x] Document architecture in `.team/decisions/ADR-002-auth-session-lifecycle.md`.
 - [ ] `T-012` [DATA] **Supabase Auth Triggers, Profile Auto-Creation & Email Sync**
   - [ ] PostgreSQL trigger on `auth.users` to automatically populate `public.profiles` on signup.
   - [ ] Default initial board creation on new account signup (template board with 5 columns).
@@ -118,3 +118,4 @@ This living checklist tracks the transition of **Zankai Orbit** from an initial 
 - **Backend:** `TEAM-BE` → Codex (`codex.cmd -m gpt-6-sol -c model_reasoning_effort=medium`)
 - **Frontend:** `TEAM-FE` → Antigravity (`agy`)
 - **QA:** `TEAM-QA` → Codex (`codex.cmd -m gpt-6-sol -c model_reasoning_effort=medium`)
+
