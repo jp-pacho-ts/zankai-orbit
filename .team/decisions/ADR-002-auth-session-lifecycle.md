@@ -1,0 +1,51 @@
+﻿# ADR-002: Auth session lifecycle
+
+- **Status:** Proposed
+- **Date:** 2026-10-11
+- **Owner:** architect (TEAM-ARCH)
+- **Approval level:** YELLOW (T-013's middleware file scope must be reconciled with the installed Next.js 16 convention)
+- **Team Lead decision:** Pending
+
+## Context
+
+Zankai Orbit already uses Supabase Auth, PostgreSQL RLS, cookie-capable @supabase/ssr clients, and client-side Zustand stores. The public board currently starts with mock data; its hydration hook retains that data when auth fails. T-012 through T-014 will add onboarding, callback handling, a sign-in UI, and session-aware hydration. A user switch or sign-out must never leave the previous user's board, checklist, drawer, or timer data visible. The installed package is Next.js 16.3.8 although .team/PROJECT.md and T-013 name Next.js 15 and src/middleware.ts.
+
+## Decision & Shared Contracts
+
+- **API shapes and request/response types:** src/types/auth.ts defines AuthSessionStatus, discriminated AuthSessionState, MagicLinkSignInPayload, EmailOtpSignInPayload, EmailOtpVerificationPayload, OAuthSignInPayload, AuthUserProfile, and TierPermissions. Existing AI contracts in src/types/orbit.ts remain unchanged. Auth payloads contain no access or refresh tokens. A successful request for an email link/code means “check your email,” not an authenticated session.
+- **Domain types and enum values:** States are unauthenticated, authenticating, authenticated, and offline_preview. AuthMethod distinguishes session restore, magic link, email OTP, and OAuth. OAuth providers are google or github. Authenticated state carries a verified user ID and may temporarily have null profile/permissions while the signup trigger or profile fetch completes. No private board mutations run until profile and permissions are available.
+- **Entity names and relations:** Supabase auth.users identifies the session. public.profiles.id matches auth.users.id; boards.user_id, tasks.user_id, and focus_sessions.user_id are authorized by RLS. No Prisma entity or new table is introduced. T-012 must inspect the existing on_auth_user_created and on_board_created triggers before extending onboarding; create exactly one starter board and its welcome task per new user, without duplicate triggers or columns.
+- **Validation and authorization:** The browser's AuthSessionState and TierPermissions are UI hints only. Server Route Handlers call the cookie-backed Supabase client and auth.getUser() before private work. RLS remains the final database boundary. Do not authorize with a user ID from a request body, unsigned cookie, client store, user metadata tier, or getSession(). The profile row supplies tier and quota; remainingBoardGenerations is max(0, maxAiGenerations - aiMonthlyGenerations), and canGenerateBoard is true only when remaining is positive. Both free and pro can use the workspace and task breakdown under current requirements; neither tier is assumed unlimited. Server quota checks and the atomic quota function remain authoritative.
+- **Route boundary:** / and any explicit marketing/preview page are public and can render synthetic data. /auth/callback and the email confirmation endpoint are public entrypoints that establish a session. Static assets are public. /api/ai/generate-board and /api/ai/breakdown-task require a verified user and return the existing friendly 401 response when absent. Supabase board/task/focus reads and writes require the user's RLS-scoped client. If a private page is added later, protect it in its Server Component or Route Handler as well as in the proxy; the proxy is not the sole authorization boundary. Offline preview never sends writes or model calls.
+- **SSR cookie lifecycle:** Use the existing src/lib/supabase/middleware.ts updateSession helper as the request/response cookie adapter. At the root request boundary call it for app pages, auth callbacks, and APIs; exclude _next/static, _next/image, favicon.ico, and other immutable assets. Its setAll must update request cookies for the current render and attach rotated cookies to the returned response. Return that response (or copy its cookies to a redirect response), not a fresh response that loses Set-Cookie. Keep per-request server clients; do not cache personalized responses. The root entrypoint is a version decision: Next.js 16 expects src/proxy.ts exporting proxy; T-013 currently owns src/middleware.ts, the deprecated convention. TEAM-COORD/Team Lead should adjust T-013's scope to proxy.ts or explicitly restore Next.js 15 before dispatch. Do not create both entrypoints.
+- **Callback contract:** OAuth PKCE returns a code to /auth/callback and the Route Handler exchanges it with exchangeCodeForSession(code) using a cookie-backed server client. For an email magic-link template that returns token_hash, the public callback/confirm handler verifies it with verifyOtp({ token_hash, type: 'email' }); a typed email code is verified with verifyOtp({ email, token, type: 'email' }). Configure only enabled providers and allowed redirect URLs. Validate an optional next destination as a same-origin relative path; never use an arbitrary origin from query parameters or headers. On success, redirect to a non-prefetching landing path while cookies settle. On failure, redirect to a friendly sign-in state with a fixed error indicator, never raw provider messages or tokens.
+- **Client hydration:** On boot, enter authenticating with method session_restore and resolve auth.getUser(); subscribe once to onAuthStateChange, then schedule profile/board loading outside the synchronous auth callback. On valid sign-in, advance a monotonically increasing session epoch, clear any prior user's board projection, drawer, timer, and subscriptions, load the profile, then load owned boards and the selected board details. Remembered board ID is used only after confirming it belongs to this user; otherwise choose the first owned board or show an empty/starter state. Commit board, columns, tasks, and checklists as one user-scoped snapshot. Realtime listeners and optimistic mutations carry the epoch and user ID; discard results from an older epoch. TOKEN_REFRESHED keeps the same authenticated user without resetting the board. If the profile trigger has not completed, keep authenticated with null profile/permissions, show setup/loading copy, retry the profile read, and block private mutations.
+- **Sign-out and account switch:** Immediately invalidate the epoch, unsubscribe from Realtime, cancel/ignore pending loads and writes, reset the timer without logging a session, close and clear the drawer, and remove board, columns, tasks, checklists, active board ID, filters, optimistic state, and user-specific toasts. Then call Supabase signOut. After confirmed sign-out, show a fresh clone of static preview data or an empty preview. If signOut fails, keep private stores empty and revalidate the server session before restoring any data. A cross-tab SIGNED_OUT event uses the same purge. User B sign-in must never observe user A's data even briefly.
+- **Offline preview:** Enter offline_preview only after private state is purged when Supabase is unavailable or preview is explicitly selected. Preview rows are synthetic and immutable source constants copied into the view; they are never treated as a signed-in user's rows or written to Supabase. Normal unauthenticated users may also view the public demo, but the UI must distinguish that from an authenticated workspace. No API key or technical error is shown.
+
+## Alternatives considered
+
+- **NextAuth/Auth.js:** Adds a second session system and an adapter/claim bridge before Supabase RLS can reliably identify the user.
+- **Clerk:** Provides polished auth UI but adds another identity provider and token mapping layer for Supabase RLS. It also changes the selected stack and account model.
+- **Supabase Auth:** Chosen because it already issues the identity used by auth.uid() in existing policies, provides magic link/OAuth flows, and works with the existing @supabase/ssr clients. This extends the current design rather than replacing it.
+- **Client-only session checks or proxy-only authorization:** Insufficient for protected API and database operations; both server verification and RLS are required.
+- **Keeping the existing demo store on auth errors:** Can display stale private data after sign-out or user switch. The epoch purge and explicit preview state prevent that.
+
+## Consequences & Parallel Impact
+
+T-012 owns migration and auth helpers; it must extend existing signup triggers carefully. T-013 owns callback/server protection and the root session entrypoint after the Next.js version/path decision. T-014 owns UI and Zustand/hook lifecycle. Their owned files do not overlap once the root entrypoint is settled, but T-014 depends on T-012 and T-013, as its task states. T-015 verifies cookie rotation, auth transitions, cross-account isolation, and regressions on integrated work. No destructive database operation, auth replacement, deployment, or merge is authorized here.
+
+There is a conflict between T-013's “mock preview limits when unauthenticated” line and ADR-001's 401 contract for AI endpoints. This ADR keeps authenticated AI routes and assigns synthetic preview behavior to the public client. TEAM-COORD should clarify T-013 before dispatch. The current useOrbitBoard hook and board store retain mock data and do not implement the purge; T-014 must change those owned files. Build/typecheck results for T-011 verify only contract compilation, not the later auth implementation.
+
+## Approval and follow-up
+
+The Team Lead should decide the Next.js 16 proxy.ts versus Next.js 15 middleware.ts path and have TEAM-COORD align T-013's owned scope and route expectations before implementation. ADR-001 and .team/ARCHITECTURE.md remain the existing base contract; T-011 does not own edits to the architecture document. Apply this lifecycle contract in T-012 through T-015 after review.
+
+## Primary references
+
+- https://nextjs.org/docs/app/api-reference/file-conventions/proxy
+- https://nextjs.org/docs/app/guides/upgrading/version-16
+- https://supabase.com/docs/guides/auth/server-side
+- https://supabase.com/docs/guides/auth/auth-email-passwordless
+- https://supabase.com/docs/reference/javascript/auth-exchangecodeforsession
+
